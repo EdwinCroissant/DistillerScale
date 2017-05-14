@@ -29,9 +29,10 @@
 #include <SSD1306Ascii.h> // https://github.com/EdwinCroissantArduinoLibraries/SSD1306Ascii
 #include <SSD1306AsciiAvrI2c.h>
 
-#define VERSION "00.01"
+#define VERSION "00.02"
 /* version history:
  * 00.01 13may2017 First release
+ * 00.02 14may2017 Fixed overflow in calibration and enabled smoothing
  */
 
 // recognizable names for the pins
@@ -217,7 +218,7 @@ void loop() {
 
 void update250ms() {
 	Data.timestamp = scale.getTimestamp();
-	Data.weight10X = scale.getAdjusted(false) + Data.tempComp;
+	Data.weight10X = scale.getAdjusted(true) + Data.tempComp;
 	Data.weight = divNearest(Data.weight10X, 10);
 
 	if (AutoPageRefreshFast)
@@ -741,7 +742,7 @@ void setCalWeight() {
 }
 
 void adjustScale() {
-	scale.adjustTo(Data.calWeight * 10, true);
+	scale.adjustTo(int32_t(Data.calWeight) * 10, true);
 	EEPROMupdate32(eeAdjuster, scale.getAdjuster());
 }
 
