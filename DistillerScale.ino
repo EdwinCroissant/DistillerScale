@@ -29,10 +29,11 @@
 #include <SSD1306Ascii.h> // https://github.com/EdwinCroissantArduinoLibraries/SSD1306Ascii
 #include <SSD1306AsciiAvrI2c.h>
 
-#define VERSION "00.02"
+#define VERSION "00.03"
 /* version history:
  * 00.01 13may2017 First release
  * 00.02 14may2017 Fixed overflow in calibration and enabled smoothing
+ * 00.03 24jul2017 Fixed for updated SimplekeyHandler library
  */
 
 // recognizable names for the pins
@@ -167,8 +168,6 @@ void setup() {
 	digitalWrite(pinBeeper, LOW);
 	pinMode(pinBlinker, OUTPUT);
 	digitalWrite(pinBlinker, LOW);
-	// couple the two keys
-	leftBtn.setCompanion(&rightBtn);
 
 	// setup the oled display
 	oled.begin(&Adafruit128x64, 0x3C);
@@ -312,10 +311,10 @@ void pageWeightInit() {
 	leftBtn.clear();
 	leftBtn.onShortPress = toggleAlarm;
 	leftBtn.onLongPress = pageAlarmsInit;
-	leftBtn.onBothPress = pageSettingsInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageRemainingInit;
 	rightBtn.onLongPress = tare;
+	SimpleKeyHandler::onTwoPress = pageSettingsInit;
 	AutoPageRefreshFast = pageWeightRefreshFast;
 	AutoPageRefreshSlow = pageWeightRefreshSlow;
 	ReturnPage = pageWeightInit;
@@ -365,10 +364,10 @@ void pageRemainingInit() {
 	leftBtn.clear();
 	leftBtn.onShortPress = toggleAlarm;
 	leftBtn.onLongPress = pageAlarmsInit;
-	leftBtn.onBothPress = pageSettingsInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageRateInit;
 	rightBtn.onLongPress = tare;
+	SimpleKeyHandler::onTwoPress = pageSettingsInit;
 	AutoPageRefreshFast = pageRemainingRefreshFast;
 	AutoPageRefreshSlow = pageRemainingRefreshSlow;
 	ReturnPage = pageRemainingInit;
@@ -417,10 +416,10 @@ void pageRateInit() {
 	leftBtn.clear();
 	leftBtn.onShortPress = increaseMeasuretime;
 	leftBtn.onRepPress = increaseMeasuretime;
-	leftBtn.onBothPress = pageSettingsInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageWeightInit;
 	rightBtn.onLongPress = tare;
+	SimpleKeyHandler::onTwoPress = pageSettingsInit;
 	AutoPageRefreshFast = pageRateRefreshFast;
 	AutoPageRefreshSlow = pageRateRefreshSlow;
 	ReturnPage = pageRateInit;
@@ -461,6 +460,10 @@ void pageRateRefreshSlow() {
 	oled.print(char(scratchpad[5]));
 }
 
+void pageSettingsInit(const SimpleKeyHandler* senderKey,
+		const SimpleKeyHandler* otherKey) {
+	pageSettingsInit();
+}
 
 void pageSettingsInit() {
 	AutoPageRefreshFast = nullptr;
@@ -470,6 +473,7 @@ void pageSettingsInit() {
 	leftBtn.onShortPress = pageNextSetting;
 	leftBtn.onLongPress = ReturnPage;
 	rightBtn.clear();
+	SimpleKeyHandler::onTwoPress = nullptr;
 	oled.clear();
 	oled.setFont(X11fixed7x14);
 	pageSettingsRefresh();
@@ -554,7 +558,7 @@ void pageAlarmsInit() {
 	rightBtn.clear();
 	rightBtn.onShortPress = ReturnPage;
 	rightBtn.onLongPress = pageEditAlarmInit;
-	rightBtn.onBothPress = setAlarmByWeight;
+	SimpleKeyHandler::onTwoPress = setAlarmByWeight;
 	oled.clear();
 	oled.setFont(X11fixed7x14);
 	pageAlarmsRefresh();
@@ -598,6 +602,7 @@ void pageEditAlarmInit() {
 	leftBtn.onLongPress = pageAlarmsInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageAlarmsInit;
+	SimpleKeyHandler::onTwoPress = nullptr;
 	numberToDigitArray(Data.alarm[Data.alarmSelected]);
 	oled.clear();
 	EditData.selected = cancel;
@@ -701,6 +706,7 @@ void pageCalibrateInit() {
 	rightBtn.clear();
 	rightBtn.onShortPress = adjustScale;
 	rightBtn.onLongPress = tare;
+	SimpleKeyHandler::onTwoPress = nullptr;
 	oled.clear();
 	AutoPageRefreshFast = pageWeightRefreshFast;
 	AutoPageRefreshSlow = nullptr;
@@ -723,6 +729,7 @@ void pageEditCalWeightInit() {
 	leftBtn.onLongPress = pageCalibrateInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageCalibrateInit;
+	SimpleKeyHandler::onTwoPress = nullptr;
 	numberToDigitArray(Data.calWeight);
 	oled.clear();
 	EditData.selected = cancel;
@@ -753,6 +760,7 @@ void pageDataInit() {
 	leftBtn.onLongPress = pageSettingsInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageScaleDataInit;
+	SimpleKeyHandler::onTwoPress = nullptr;
 
 	AutoPageRefreshFast = pageDataRefresh;
 	AutoPageRefreshSlow = nullptr;
@@ -890,6 +898,7 @@ void pageEditTCInit() {
 	leftBtn.onLongPress = pageSettingsInit;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageSettingsInit;
+	SimpleKeyHandler::onTwoPress = nullptr;
 	numberToDigitArray(Data.temperatureCoefficient);
 	oled.clear();
 	EditData.selected = cancel;
@@ -998,6 +1007,11 @@ void increaseMeasuretime() {
 		Data.measuretime = 0;
 		break;
 	}
+}
+
+void setAlarmByWeight(const SimpleKeyHandler* senderKey,
+		const SimpleKeyHandler* otherKey) {
+	setAlarmByWeight();
 }
 
 void setAlarmByWeight() {
