@@ -29,11 +29,12 @@
 #include <SSD1306Ascii.h> // https://github.com/EdwinCroissantArduinoLibraries/SSD1306Ascii
 #include <SSD1306AsciiAvrI2c.h>
 
-#define VERSION "00.03"
+#define VERSION "00.04"
 /* version history:
  * 00.01 13may2017 First release
  * 00.02 14may2017 Fixed overflow in calibration and enabled smoothing
  * 00.03 24jul2017 Fixed for updated SimplekeyHandler library
+ * 00.04 05dec2017 Added reset measuring time for rate
  */
 
 // recognizable names for the pins
@@ -60,7 +61,8 @@ enum EEPROMAdr {
 	eeTemperatureCoefficient = 16,	// 2 bytes for temperature coefficient
 	eeCalWeight = 18,				// 2 bytes for the calibration weight
 	eeAlarm = 20,					// 8 bytes for the alarm values
-	eeLastEntry = 28
+	eeMaxMeasureTime = 28,			// 1 byte for measure time rate
+	eeLastEntry = 29
 };
 
 // setup oneWire instances to communicate with the Dallas Sensors
@@ -117,7 +119,8 @@ struct data {
 	int32_t weightAtTimeOff; // in deci gram
 	uint8_t alarmSelected;
 	int16_t alarm[4];
-	uint8_t measuretime;
+	uint8_t maxMeasureTime;
+	uint8_t measureTime;
 	uint8_t settingSelected;
 } Data;
 
@@ -267,7 +270,7 @@ void update1000ms() {
 
 	uint8_t oldIndex;
 
-	if (!Data.measuretime) {
+	if (!Data.maxMeasureTime) {
 		if (Data.alarmOn) {
 			Data.rate = calculateRate(Data.weightAtTimeOn, Data.weight10X,
 					Data.alarmTimeOn, Data.timestamp);
@@ -276,7 +279,8 @@ void update1000ms() {
 					Data.alarmTimeOn, Data.alarmTimeOff);
 		}
 	} else {
-		oldIndex = (Data.historyNewest - Data.measuretime) & (buffermask);
+		oldIndex = (Data.historyNewest
+				- min(Data.maxMeasureTime, Data.measureTime)) & (buffermask);
 		Data.rate = calculateRate(Data.history[oldIndex].weight10X,
 				Data.weight10X, Data.history[oldIndex].timestamp,
 				Data.timestamp);
@@ -287,6 +291,10 @@ void update1000ms() {
 
 	// blink led;
 	digitalWrite(pinBlinker, !digitalRead(pinBlinker));
+
+	// increase measureTime
+	if (Data.measureTime < buffersize)
+		Data.measureTime++;
 }
 
 // helper function to calculate the rate
@@ -303,8 +311,8 @@ void pageSplashInit() {
 	oled.print(F("Edwin Croissant"));
 	oled.setCursor(26, 3);
 	oled.print(F("Distiller scale"));
-	oled.setCursor(8, 6);
-	oled.print(F("www.visionstills.org"));
+	oled.setCursor(14, 6);
+	oled.print(F("www.eParrot.org"));
 }
 
 void pageWeightInit() {
@@ -319,6 +327,9 @@ void pageWeightInit() {
 	AutoPageRefreshSlow = pageWeightRefreshSlow;
 	ReturnPage = pageWeightInit;
 	oled.clear();
+	oled.setFont(X11fixed7x14);
+	oled.setCursor(119, 6);
+	oled.print('g');
 	AutoPageRefreshFast();
 	AutoPageRefreshSlow();
 }
@@ -372,6 +383,9 @@ void pageRemainingInit() {
 	AutoPageRefreshSlow = pageRemainingRefreshSlow;
 	ReturnPage = pageRemainingInit;
 	oled.clear();
+	oled.setFont(X11fixed7x14);
+	oled.setCursor(104, 6);
+	oled.print(F("min"));
 	AutoPageRefreshFast();
 	AutoPageRefreshSlow();
 }
@@ -415,29 +429,46 @@ void pageRemainingRefreshSlow() {
 void pageRateInit() {
 	leftBtn.clear();
 	leftBtn.onShortPress = increaseMeasuretime;
-	leftBtn.onRepPress = increaseMeasuretime;
+	leftBtn.onLongPress = saveMeasureTime;
 	rightBtn.clear();
 	rightBtn.onShortPress = pageWeightInit;
-	rightBtn.onLongPress = tare;
+	rightBtn.onLongPress = resetMeasureTime;
 	SimpleKeyHandler::onTwoPress = pageSettingsInit;
 	AutoPageRefreshFast = pageRateRefreshFast;
 	AutoPageRefreshSlow = pageRateRefreshSlow;
 	ReturnPage = pageRateInit;
 	oled.clear();
+	oled.setFont(Adafruit5x7);
+	oled.setCursor(121, 6);
+	oled.print('g');
+	oled.setCursor(121, 7);
+	oled.print('m');
+
 	AutoPageRefreshFast();
 	AutoPageRefreshSlow();
+}
+
+void resetMeasureTime() {
+	Data.measureTime = 0;
+}
+
+void saveMeasureTime() {
+	EEPROM.update(eeMaxMeasureTime, Data.maxMeasureTime);
 }
 
 void pageRateRefreshFast() {
 	oled.setFont(X11fixed7x14);
 	oled.setCursor(0, 0);
 	oled.print(F("dt"));
-	if (Data.measuretime) {
-		dtostrf(Data.measuretime, 3, 0, scratchpad);
+	if (Data.maxMeasureTime) {
+		dtostrf(min(Data.maxMeasureTime, Data.measureTime), 3, 0, scratchpad);
+		oled.print(scratchpad);
+		oled.print(' ');
+		dtostrf(Data.maxMeasureTime, 2, 0, scratchpad);
 		oled.print(scratchpad);
 		oled.print(F(" s"));
 	} else
-		oled.print(F("  run"));
+		oled.print(F("  run   "));
 	oled.setCursor(79, 0);
 	dtostrf(Data.weight, 5, 0, scratchpad);
 	oled.print(scratchpad);
@@ -778,6 +809,8 @@ void pageDataInit() {
 	oled.print(F("Tare temp"));
 	oled.setCursor(0, 5);
 	oled.print(F("Tare raw"));
+	oled.setCursor(0, 6);
+	oled.print(F("Meas. time"));
 	oled.setCursor(0, 7);
 	oled.print(F("Version"));
 }
@@ -806,6 +839,10 @@ void pageDataRefresh() {
 
 	oled.setCursor(62, 5);
 	dtostrf(Data.tareTemp, 11, 0, scratchpad);
+	oled.print(scratchpad);
+
+	oled.setCursor(62, 6);
+	dtostrf(Data.maxMeasureTime, 11, 0, scratchpad);
 	oled.print(scratchpad);
 
 	oled.setCursor(98, 7);
@@ -984,27 +1021,27 @@ void toggleAlarm() {
  * TODO is it possible to automate this?
  */
 void increaseMeasuretime() {
-	switch (Data.measuretime) {
+	switch (Data.maxMeasureTime) {
 	case 0:
-		Data.measuretime = 1;
+		Data.maxMeasureTime = 1;
 		break;
 	case 1:
-		Data.measuretime = 2;
+		Data.maxMeasureTime = 2;
 		break;
 	case 2:
-		Data.measuretime = 4;
+		Data.maxMeasureTime = 4;
 		break;
 	case 4:
-		Data.measuretime = 16;
+		Data.maxMeasureTime = 16;
 		break;
 	case 16:
-		Data.measuretime = 32;
+		Data.maxMeasureTime = 32;
 		break;
 	case 32:
-		Data.measuretime = 63;
+		Data.maxMeasureTime = 63;
 		break;
 	default:
-		Data.measuretime = 0;
+		Data.maxMeasureTime = 0;
 		break;
 	}
 }
@@ -1039,6 +1076,7 @@ bool loadFromEEPROM() {
 		{
 			Data.alarm[i] = EEPROMread16(eeAlarm + (i * 2));
 		}
+		Data.maxMeasureTime = EEPROM.read(eeMaxMeasureTime);
 		return true;
 	} else
 		return false;
